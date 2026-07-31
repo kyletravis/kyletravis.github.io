@@ -158,7 +158,7 @@
   const $ = s => document.querySelector(s);
   const canvas = $("#game"), ctx = canvas.getContext("2d", {alpha:false});
   const panels = ["menu","upgradePanel","pausePanel","gameOver"];
-  let W=0,H=0,DPR=1, state="menu", last=performance.now(), accumulator=0;
+  let W=0,H=0,DPR=1, dprCap=2, emaFrame=16, state="menu", last=performance.now(), accumulator=0;
   let difficulty="medium", weaponType="pulse", muted=false, audio=null;
   let score=0, high=load("high",0), time=0, sector=1, spawnClock=0, freeze=0;
   let shake=0, flash=0, toastClock=0, gamepadPause=false, upgradeChoices=[];
@@ -183,7 +183,7 @@
   function toast(s){$("#toast").textContent=s;$("#toast").classList.add("on");toastClock=1.5}
 
   function resize(){
-    DPR=Math.min(2,devicePixelRatio||1); W=innerWidth; H=innerHeight;
+    DPR=Math.min(dprCap,devicePixelRatio||1); W=innerWidth; H=innerHeight;
     canvas.width=Math.round(W*DPR); canvas.height=Math.round(H*DPR);
     ctx.setTransform(DPR,0,0,DPR,0,0);
     if(!stars.length) for(let i=0;i<110;i++) stars.push({x:Math.random()*W,y:Math.random()*H,z:rand(.2,1)});
@@ -242,6 +242,7 @@
     const d=DIFFICULTY[difficulty];
     for(let i=enemies.length-1;i>=0;i--){
       const e=enemies[i];
+      if(!e||e.dead)continue;
       if(e.type==="boss"){e.hp-=160+player.level*12;e.flash=.5;if(e.hp<=0)destroyEnemy(e,i);continue}
       registerKill();
       score+=Math.round(e.value*d.score*(1+player.level*.05)*comboMult);
@@ -348,6 +349,7 @@
   }
 
   function particle(x,y,color,speed=120,ang=rand(0,Math.PI*2),life=.5,size=3){
+    if(particles.length>350)return;
     particles.push({x,y,vx:Math.cos(ang)*speed,vy:Math.sin(ang)*speed,life,max:life,size,color});
   }
   function burst(x,y,color,n=12){
@@ -490,6 +492,7 @@
     for(let i=0;i<40;i++)particle(player.x,player.y,"#ff74e2",rand(90,420),rand(0,Math.PI*2),rand(.2,.6),rand(2,5));
     for(let i=enemies.length-1;i>=0;i--){
       const e=enemies[i];
+      if(!e||e.dead)continue;
       e.hp-=e.type==="boss"?(160+player.level*12)/2:60;e.flash=.4;
       if(e.hp<=0)destroyEnemy(e,i);
     }
@@ -624,6 +627,7 @@
       }else{
         for(let j=enemies.length-1;j>=0;j--){
           const e=enemies[j];
+          if(!e||e.dead)continue;
           if(dist2(b,e)<(b.r+e.r)**2){
             e.hp-=b.damage;e.flash=.18;burst(b.x,b.y,b.color,4);sound("hit",.025,240);
             if(bossLevels.arc&&!b.arced){b.arced=true;arcChain(e,b.damage)}
@@ -635,7 +639,9 @@
     }
 
     for(let i=enemies.length-1;i>=0;i--){
-      const e=enemies[i],edt=dt*slowF;e.rot+=e.spin*edt;e.flash=Math.max(0,e.flash-dt*5);e.scale+=(1-e.scale)*dt*8;e.shot-=edt;
+      const e=enemies[i];
+      if(!e||e.dead)continue;
+      const edt=dt*slowF;e.rot+=e.spin*edt;e.flash=Math.max(0,e.flash-dt*5);e.scale+=(1-e.scale)*dt*8;e.shot-=edt;
       if(e.type==="boss"){
         if(e.y<H*.2)e.y+=e.vy*edt;
         else if(e.variant!==2||e.mode==="move")e.x=clamp(e.x+Math.sin(time*.85)*140*edt,e.r,W-e.r);
@@ -709,7 +715,6 @@
     }
     for(let i=particles.length-1;i>=0;i--){const p=particles[i];p.life-=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vx*=Math.pow(.12,dt);p.vy*=Math.pow(.12,dt);if(p.life<=0)particles.splice(i,1)}
     for(let i=texts.length-1;i>=0;i--){texts[i].life-=dt;texts[i].y-=35*dt;if(texts[i].life<=0)texts.splice(i,1)}
-    updateHUD();
   }
 
   function updateHUD(){
@@ -823,11 +828,23 @@
     if(state==="play"&&player.slow>0){ctx.fillStyle="rgba(160,92,255,.07)";ctx.fillRect(0,0,W,H)}
   }
 
+  // The loop must never die or spiral: catch-up work is capped (the game slows
+  // rather than freezing on weak devices), rendering drops to 1x DPR if frames
+  // stay slow, and a rare exception logs instead of killing the animation loop.
   function loop(now){
     const frame=Math.min(.1,(now-last)/1000);last=now;
-    if(state==="play"){accumulator+=frame;while(accumulator>=CONFIG.fixedStep){update(CONFIG.fixedStep);accumulator-=CONFIG.fixedStep}}
-    else{shake*=.94;if(toastClock>0){toastClock-=frame;if(toastClock<=0)$("#toast").classList.remove("on")}}
-    draw(frame||.016);requestAnimationFrame(loop);
+    emaFrame=emaFrame*.95+frame*1000*.05;
+    if(emaFrame>50&&dprCap>1){dprCap=1;resize()}
+    try{
+      if(state==="play"){
+        accumulator=Math.min(accumulator+frame,CONFIG.fixedStep*5);
+        while(accumulator>=CONFIG.fixedStep){update(CONFIG.fixedStep);accumulator-=CONFIG.fixedStep}
+        updateHUD();
+      }
+      else{shake*=.94;if(toastClock>0){toastClock-=frame;if(toastClock<=0)$("#toast").classList.remove("on")}}
+      draw(frame||.016);
+    }catch(err){console.error("Starfall frame error:",err)}
+    requestAnimationFrame(loop);
   }requestAnimationFrame(loop);
 
   // ---------- Input abstraction ----------
