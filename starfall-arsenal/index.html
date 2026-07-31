@@ -95,6 +95,11 @@
         <button class="choice" data-weapon="scatter" data-icon="✦"><b>Scatter</b>Wide volleys</button>
         <button class="choice" data-weapon="beam" data-icon="║"><b>Beam</b>Heavy pierce</button>
       </div>
+      <div class="label">Enemy tactics</div>
+      <div id="tacticChoices" class="choices" style="grid-template-columns:repeat(2,1fr)">
+        <button class="choice sel" data-tactics="on"><b>Evolving</b>New attack styles every 5 sectors</button>
+        <button class="choice" data-tactics="off"><b>Classic</b>Standard bullets all run</button>
+      </div>
       <button id="launchBtn" class="primary">Launch</button>
       <p class="tiny">Drag to fly · Auto-fire · Tap NOVA to clear danger</p>
       <p id="best" class="tiny"></p>
@@ -165,7 +170,7 @@
   let nextBossSector=3, bossCount=0;
   let combo=0, comboTimer=0, comboMult=1;
   let stars=[], bullets=[], enemies=[], particles=[], pickups=[], texts=[], lasers=[];
-  let tactic="bullets", tacticBlock=0;
+  let tactic="bullets", tacticBlock=0, tacticsEnabled=true;
   const input={left:false,right:false,up:false,down:false,fire:false,pointer:false,px:0,py:0};
   const player={
     x:0,y:0,r:18,hp:100,maxHp:100,inv:0,fire:0,nova:0,xp:0,level:1,
@@ -517,7 +522,7 @@
     const tb=Math.floor((sector-1)/5);
     if(tb!==tacticBlock){
       tacticBlock=tb;
-      if(tb===0)tactic="bullets";
+      if(tb===0||!tacticsEnabled)tactic="bullets";
       else{
         const pool=TACTICS.filter(t=>t.id!==tactic);
         const t=pool[Math.floor(Math.random()*pool.length)];
@@ -863,9 +868,11 @@
 
   $("#diffChoices").onclick=e=>{const b=e.target.closest("[data-diff]");if(!b)return;difficulty=b.dataset.diff;document.querySelectorAll("[data-diff]").forEach(x=>x.classList.toggle("sel",x===b));save("difficulty",difficulty)};
   $("#weaponChoices").onclick=e=>{const b=e.target.closest("[data-weapon]");if(!b)return;weaponType=b.dataset.weapon;document.querySelectorAll("[data-weapon]").forEach(x=>x.classList.toggle("sel",x===b));save("weapon",weaponType)};
-  difficulty=load("difficulty","medium");weaponType=load("weapon","pulse");
+  $("#tacticChoices").onclick=e=>{const b=e.target.closest("[data-tactics]");if(!b)return;tacticsEnabled=b.dataset.tactics==="on";document.querySelectorAll("[data-tactics]").forEach(x=>x.classList.toggle("sel",x===b));save("tactics",tacticsEnabled)};
+  difficulty=load("difficulty","medium");weaponType=load("weapon","pulse");tacticsEnabled=load("tactics",true);
   document.querySelectorAll("[data-diff]").forEach(x=>x.classList.toggle("sel",x.dataset.diff===difficulty));
   document.querySelectorAll("[data-weapon]").forEach(x=>x.classList.toggle("sel",x.dataset.weapon===weaponType));
+  document.querySelectorAll("[data-tactics]").forEach(x=>x.classList.toggle("sel",(x.dataset.tactics==="on")===tacticsEnabled));
   $("#best").textContent="Flight record: "+high.toLocaleString();
   $("#launchBtn").onclick=()=>{initAudio();for(const k in levels)delete levels[k];reset()};
   $("#pauseBtn").onclick=pause;$("#resumeBtn").onclick=pause;
