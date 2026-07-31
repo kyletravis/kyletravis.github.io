@@ -23,7 +23,7 @@
   .bar>i{display:block;height:100%;width:100%;background:linear-gradient(90deg,#ff4175,#ffcd5f);transition:width .15s}
   .bar.xp>i{background:linear-gradient(90deg,#47e8ff,#a05cff)}
   .iconBtn{width:44px;height:44px;border-radius:50%;background:#0e1535d9;border:1px solid #79efff55;backdrop-filter:blur(9px);font-size:20px;box-shadow:0 6px 24px #0008}
-  #actions{display:none;position:absolute;right:calc(16px + env(safe-area-inset-right));bottom:calc(19px + env(safe-area-inset-bottom));align-items:flex-end;gap:12px}
+  #actions{display:none;position:absolute;left:calc(16px + env(safe-area-inset-left));bottom:calc(19px + env(safe-area-inset-bottom));align-items:flex-end;gap:12px}
   #actions.on{display:flex}
   .action{width:70px;height:70px;border-radius:50%;font-size:11px;font-weight:1000;letter-spacing:.08em;background:radial-gradient(circle at 35% 25%,#ff87ed,#9b208b 65%,#430642);border:2px solid #ffb9f0;box-shadow:0 0 25px #ff43cd77,inset 0 0 14px #fff4}
   .action:active{transform:scale(.92)}
@@ -49,6 +49,9 @@
   .upgrade{padding:15px;text-align:left;border-radius:16px;border:1px solid #4cecff55;background:#121a42}
   .upgrade strong{display:block;color:#fff;font-size:17px}
   .upgrade span{font-size:12px;color:#aab7e4}
+  .card.boss{border-color:#ffd45f66;box-shadow:0 28px 80px #000c,0 0 70px #ffd45f33}
+  .upgrade.gold{border-color:#ffd45f77;background:#2a2142}
+  .upgrade.gold strong{color:#ffd45f}
   #toast{position:absolute;top:22%;left:50%;transform:translate(-50%,-10px);padding:10px 18px;border-radius:999px;background:#101633df;border:1px solid #69efff77;font-weight:1000;letter-spacing:.1em;text-transform:uppercase;opacity:0;transition:.25s;white-space:nowrap}
   #toast.on{opacity:1;transform:translate(-50%,0)}
   #controls{font-size:13px;text-align:left}
@@ -99,9 +102,9 @@
   </section>
 
   <section id="upgradePanel" class="panel">
-    <div class="card">
-      <div class="kicker">Arsenal calibration ready</div>
-      <h2>Choose an upgrade</h2>
+    <div id="upgradeCard" class="card">
+      <div id="upgradeKicker" class="kicker">Arsenal calibration ready</div>
+      <h2 id="upgradeTitle">Choose an upgrade</h2>
       <div id="upgradeGrid" class="upgradeGrid"></div>
     </div>
   </section>
@@ -166,7 +169,7 @@
   const player={
     x:0,y:0,r:18,hp:100,maxHp:100,inv:0,fire:0,nova:0,xp:0,level:1,
     power:0,rate:0,multishot:0,pierce:0,magnet:115,speed:1,scale:1,trail:0,
-    rapid:0,slow:0,shieldUp:false
+    rapid:0,slow:0,shieldUp:false,lastStand:false
   };
 
   function save(k,v){try{localStorage.setItem("starfallArsenal."+k,JSON.stringify(v))}catch(e){}}
@@ -209,9 +212,10 @@
 
   function reset(){
     const d=DIFFICULTY[difficulty];
-    Object.assign(player,{x:W/2,y:H*.79,hp:d.lives,maxHp:d.lives,inv:1,fire:0,nova:0,xp:0,level:1,power:0,rate:0,multishot:0,pierce:weaponType==="beam"?1:0,magnet:115,speed:1,scale:1,trail:0,rapid:0,slow:0,shieldUp:false});
+    Object.assign(player,{x:W/2,y:H*.79,hp:d.lives,maxHp:d.lives,inv:1,fire:0,nova:0,xp:0,level:1,power:0,rate:0,multishot:0,pierce:weaponType==="beam"?1:0,magnet:115,speed:1,scale:1,trail:0,rapid:0,slow:0,shieldUp:false,lastStand:false});
     score=0;time=0;sector=1;spawnClock=.5;freeze=0;shake=0;flash=0;nextBossSector=3;bossCount=0;
     combo=0;comboTimer=0;comboMult=1;
+    bossLevels={};Object.assign(bossSys,{droneA:0,droneT:0,guardT:0,missileT:0,echoT:0});
     bullets=[];enemies=[];particles=[];pickups=[];texts=[];
     updateHUD(); hidePanels(); state="play";
     $("#hud").classList.add("on"); $("#pauseBtn").style.display="block"; $("#actions").classList.add("on");
@@ -231,7 +235,8 @@
 
   function useNova(){
     if(state!=="play"||player.nova>0)return;
-    player.nova=CONFIG.novaCooldown; shake=9;flash=.9;freeze=.1; player.scale=1.32;
+    player.nova=bossLevels.echo?6:CONFIG.novaCooldown; shake=9;flash=.9;freeze=.1; player.scale=1.32;
+    if(bossLevels.echo)bossSys.echoT=.8;
     const d=DIFFICULTY[difficulty];
     for(let i=enemies.length-1;i>=0;i--){
       const e=enemies[i];
@@ -287,6 +292,7 @@
 
   function registerKill(){
     combo++;comboTimer=4;
+    if(bossLevels.salvage)player.hp=Math.min(player.maxHp,player.hp+1);
     const m=Math.min(10,1+Math.floor(combo/5));
     if(m>comboMult){comboMult=m;textPop(player.x,player.y-42,"COMBO ×"+m,"#ffd45f");sound("nova",.07,300+m*30)}
   }
@@ -304,6 +310,7 @@
     pickups.push({x,y,vx:rand(-30,30),vy:50,r:9,type:POWERUPS[Math.floor(Math.random()*3)],life:10,spin:0});
   }
   function destroyEnemy(e,index){
+    if(e.dead)return; e.dead=true;
     const d=DIFFICULTY[difficulty]; registerKill();
     score+=Math.round(e.value*d.score*(1+player.level*.05)*comboMult);
     shake=Math.max(shake,e.type==="boss"?11:e.type==="brute"?5:2.5); freeze=e.type==="boss"?.15:e.type==="brute"?.06:.025;
@@ -312,11 +319,24 @@
     if(e.type==="boss"){
       bossCount++;flash=.6;toast("BOSS DESTROYED");
       for(let k=0;k<14;k++)pickups.push({x:e.x+rand(-40,40),y:e.y+rand(-30,30),vx:rand(-70,70),vy:rand(20,90),r:6,type:k<2?"repair":"xp",value:2,life:10,spin:0});
-      dropPowerup(e.x,e.y);
+      pickups.push({x:e.x,y:e.y,vx:0,vy:40,r:11,type:"core",life:20,spin:0});
     }
     else if(Math.random()<.04)dropPowerup(e.x,e.y);
     else if(Math.random()<.84)pickups.push({x:e.x,y:e.y,vx:rand(-30,30),vy:60,r:6,type:Math.random()<.1?"repair":"xp",life:8,spin:0});
-    enemies.splice(index,1); player.scale=1.07;
+    if(bossLevels.singularity){
+      burst(e.x,e.y,"#b06bff",14);
+      for(let k=enemies.length-1;k>=0;k--){
+        const o=enemies[k];
+        if(!o||o===e||o.dead||o.type==="boss")continue;
+        if(dist2(e,o)<130*130){
+          o.x+=(e.x-o.x)*.3;o.y+=(e.y-o.y)*.3;
+          o.hp-=Math.min(60,e.maxHp*.2);o.flash=.2;
+          if(o.hp<=0)destroyEnemy(o,k);
+        }
+      }
+    }
+    const idx=enemies.indexOf(e);if(idx>=0)enemies.splice(idx,1);
+    player.scale=1.07;
   }
 
   function damagePlayer(amount){
@@ -329,7 +349,14 @@
     combo=0;comboMult=1;
     player.hp-=amount*DIFFICULTY[difficulty].damage;player.inv=CONFIG.invulnerability;
     shake=5;flash=.7;freeze=.07;player.scale=.72;burst(player.x,player.y,"#ff426e",24);sound("hit",.18,95);
-    if(player.hp<=0)endGame();
+    if(player.hp<=0){
+      if(!player.lastStand){
+        player.lastStand=true;player.hp=1;player.inv=5;flash=.9;
+        burst(player.x,player.y,"#ffd45f",40);textPop(player.x,player.y-42,"LAST STAND","#ffd45f");
+        toast("LAST STAND · 5s INVULNERABLE");sound("nova",.2,140);
+      }
+      else endGame();
+    }
   }
 
   function addXP(n){
@@ -349,20 +376,73 @@
     {id:"nova",title:"Nova Capacitor",desc:"Recharge NOVA instantly",max:99,apply:()=>player.nova=0}
   ];
   const levels={};
-  function openUpgrade(){
+
+  // Boss-exclusive upgrades: dropped as a golden core by every defeated boss, each obtainable once per run.
+  const BOSS_UPGRADES=[
+    {id:"drone",title:"Orbital Sentry",desc:"A sentry drone orbits you, firing at the nearest enemy"},
+    {id:"arc",title:"Arc Coil",desc:"Hits chain lightning to a nearby enemy for 40% damage"},
+    {id:"salvage",title:"Salvage Matrix",desc:"Every kill restores 1 hull"},
+    {id:"echo",title:"Nova Echo",desc:"NOVA recharges faster and fires a second echo burst"},
+    {id:"guardian",title:"Guardian Protocol",desc:"A shield bubble regenerates every 20 seconds"},
+    {id:"singularity",title:"Singularity Rounds",desc:"Kills implode, dragging and damaging nearby enemies"},
+    {id:"missiles",title:"Missile Rack",desc:"Auto-launches homing missiles at the nearest enemy"},
+    {id:"reflector",title:"Reflector Plating",desc:"25% chance to reflect enemy bullets back as your own"}
+  ];
+  let bossLevels={};
+  const bossSys={droneA:0,droneT:0,guardT:0,missileT:0,echoT:0};
+
+  function showUpgradePanel(kicker,title,pool,gold,onpick){
     state="upgrade";$("#actions").classList.remove("on");showPanel("upgradePanel");
-    const pool=UPGRADES.filter(u=>(levels[u.id]||0)<u.max).sort(()=>Math.random()-.5).slice(0,3);
+    $("#upgradeKicker").textContent=kicker;$("#upgradeTitle").textContent=title;
+    $("#upgradeCard").classList.toggle("boss",gold);
     upgradeChoices=pool; const grid=$("#upgradeGrid");grid.textContent="";
     pool.forEach((u,i)=>{
-      const b=document.createElement("button");b.className="upgrade";
+      const b=document.createElement("button");b.className="upgrade"+(gold?" gold":"");
       b.innerHTML="<strong>"+["I","II","III"][i]+" · "+u.title+"</strong><span>"+u.desc+"</span>";
-      b.onclick=()=>chooseUpgrade(u);grid.appendChild(b);
+      b.onclick=()=>onpick(u);grid.appendChild(b);
     });
     sound("nova",.08,360);
   }
+  function resumeFromUpgrade(title){
+    state="play";hidePanels();$("#actions").classList.add("on");
+    player.scale=1.4;flash=.35;toast(title);updateHUD();sound("nova",.11,520);
+  }
+  function openUpgrade(){
+    showUpgradePanel("Arsenal calibration ready","Choose an upgrade",
+      UPGRADES.filter(u=>(levels[u.id]||0)<u.max).sort(()=>Math.random()-.5).slice(0,3),false,chooseUpgrade);
+  }
   function chooseUpgrade(u){
-    levels[u.id]=(levels[u.id]||0)+1;u.apply();state="play";hidePanels();$("#actions").classList.add("on");
-    player.scale=1.4;flash=.35;toast(u.title);updateHUD();sound("nova",.11,520);
+    levels[u.id]=(levels[u.id]||0)+1;u.apply();resumeFromUpgrade(u.title);
+  }
+  function openBossUpgrade(){
+    const pool=BOSS_UPGRADES.filter(u=>!bossLevels[u.id]).sort(()=>Math.random()-.5).slice(0,3);
+    if(!pool.length){player.hp=Math.min(player.maxHp,player.hp+40);toast("CORE SALVAGED · +HULL");return}
+    showUpgradePanel("Boss core secured","Choose an exclusive upgrade",pool,true,chooseBossUpgrade);
+  }
+  function chooseBossUpgrade(u){
+    bossLevels[u.id]=1;resumeFromUpgrade(u.title);
+  }
+  function nearestEnemy(x,y){
+    let best=null,bd=1e9;
+    for(const e of enemies){if(e.dead)continue;const d=dist2({x,y},e);if(d<bd){bd=d;best=e}}
+    return best;
+  }
+  function arcChain(e,damage){
+    let best=null,bd=150*150;
+    for(const o of enemies){if(o!==e&&!o.dead){const d=dist2(e,o);if(d<bd){bd=d;best=o}}}
+    if(!best)return;
+    best.hp-=damage*.4;best.flash=.15;
+    for(let k=0;k<7;k++)particle(e.x+(best.x-e.x)*k/6,e.y+(best.y-e.y)*k/6,"#9df6ff",25,rand(0,Math.PI*2),.16,2);
+    if(best.hp<=0)destroyEnemy(best,enemies.indexOf(best));
+  }
+  function novaEcho(){
+    shake=6;flash=.35;sound("nova",.15,210);
+    for(let i=0;i<40;i++)particle(player.x,player.y,"#ff74e2",rand(90,420),rand(0,Math.PI*2),rand(.2,.6),rand(2,5));
+    for(let i=enemies.length-1;i>=0;i--){
+      const e=enemies[i];
+      e.hp-=e.type==="boss"?(160+player.level*12)/2:60;e.flash=.4;
+      if(e.hp<=0)destroyEnemy(e,i);
+    }
   }
 
   function endGame(){
@@ -409,6 +489,32 @@
     player.trail-=dt;if(player.trail<=0){particle(player.x+rand(-7,7),player.y+19,"#59eaff",rand(30,70),Math.PI/2,.35,rand(1,3));player.trail=.025}
     if((input.fire||gpFire||input.pointer||innerWidth<700)&&player.fire<=0)fire();
 
+    if(bossLevels.drone){
+      bossSys.droneA+=dt*3.1;bossSys.droneT-=dt;
+      if(bossSys.droneT<=0&&enemies.length){
+        const dx=player.x+Math.cos(bossSys.droneA)*46,dy=player.y+Math.sin(bossSys.droneA)*46;
+        const t=nearestEnemy(dx,dy);
+        if(t){
+          const a=Math.atan2(t.y-dy,t.x-dx);
+          bullets.push({x:dx,y:dy,vx:Math.cos(a)*620,vy:Math.sin(a)*620,r:3,damage:12,pierce:0,color:"#7dffd4",life:1.5});
+          bossSys.droneT=.55;sound("shot",.02,660);
+        }
+      }
+    }
+    if(bossLevels.guardian&&!player.shieldUp){
+      bossSys.guardT-=dt;
+      if(bossSys.guardT<=0){player.shieldUp=true;bossSys.guardT=20;toast("GUARDIAN SHIELD");sound("nova",.07,320)}
+    }
+    if(bossLevels.missiles){
+      bossSys.missileT-=dt;
+      if(bossSys.missileT<=0&&enemies.length){
+        bossSys.missileT=2.5;
+        bullets.push({x:player.x,y:player.y-14,vx:rand(-60,60),vy:-240,r:4,damage:30,pierce:0,homing:true,color:"#ff9d5c",life:5});
+        sound("shot",.05,230);
+      }
+    }
+    if(bossSys.echoT>0){bossSys.echoT-=dt;if(bossSys.echoT<=0)novaEcho()}
+
     let bossActive=enemies.some(e=>e.type==="boss");
     if(!bossActive&&sector>=nextBossSector){spawnBoss();nextBossSector+=3;bossActive=true}
     spawnClock-=dt*slowF;
@@ -416,15 +522,28 @@
     if(spawnClock<=0&&!bossActive&&enemies.length<CONFIG.maxEnemies){spawnEnemy();spawnClock=spawnRate*rand(.72,1.3)}
 
     for(let i=bullets.length-1;i>=0;i--){
-      const b=bullets[i],sf=b.enemy?slowF:1;b.x+=b.vx*dt*sf;b.y+=b.vy*dt*sf;b.life-=dt*sf;
+      const b=bullets[i],sf=b.enemy?slowF:1;
+      if(b.homing){
+        const t=nearestEnemy(b.x,b.y);
+        if(t){const a=Math.atan2(t.y-b.y,t.x-b.x);b.vx+=(Math.cos(a)*430-b.vx)*dt*4;b.vy+=(Math.sin(a)*430-b.vy)*dt*4}
+        if(Math.random()<.35)particle(b.x,b.y,"#ff9d5c",25,rand(0,Math.PI*2),.25,2);
+      }
+      b.x+=b.vx*dt*sf;b.y+=b.vy*dt*sf;b.life-=dt*sf;
       if(b.life<=0||b.y<-35||b.y>H+35||b.x<-40||b.x>W+40){bullets.splice(i,1);continue}
       if(b.enemy){
-        if(dist2(b,player)<(b.r+player.r)**2){damagePlayer(b.damage);bullets.splice(i,1)}
+        if(dist2(b,player)<(b.r+player.r)**2){
+          if(bossLevels.reflector&&Math.random()<.25){
+            b.enemy=false;b.vx*=-1;b.vy*=-1;b.damage=15;b.pierce=0;b.color="#9df6ff";b.life=2;
+            burst(b.x,b.y,"#9df6ff",6);sound("hit",.05,520);
+          }
+          else{damagePlayer(b.damage);bullets.splice(i,1)}
+        }
       }else{
         for(let j=enemies.length-1;j>=0;j--){
           const e=enemies[j];
           if(dist2(b,e)<(b.r+e.r)**2){
             e.hp-=b.damage;e.flash=.18;burst(b.x,b.y,b.color,4);sound("hit",.025,240);
+            if(bossLevels.arc&&!b.arced){b.arced=true;arcChain(e,b.damage)}
             if(e.hp<=0)destroyEnemy(e,j);
             if(b.pierce>0)b.pierce--;else{bullets.splice(i,1);break}
           }
@@ -471,6 +590,7 @@
         else if(p.type==="rapid"){player.rapid=8;toast("RAPID FIRE");textPop(p.x,p.y,"RAPID","#ffd45f")}
         else if(p.type==="shield"){player.shieldUp=true;toast("SHIELD UP");textPop(p.x,p.y,"SHIELD","#8fb1ff")}
         else if(p.type==="slow"){player.slow=6;toast("TIME WARP");textPop(p.x,p.y,"WARP","#d09bff")}
+        else if(p.type==="core"){textPop(p.x,p.y,"BOSS CORE","#ffd45f");openBossUpgrade()}
         else addXP(p.value||1);
         sound("shot",.055,720);burst(p.x,p.y,"#80f7ff",8);pickups.splice(i,1)
       }
@@ -553,13 +673,21 @@
     drawStarfield(dt);
     ctx.save();if(shake>.1)ctx.translate(rand(-shake,shake),rand(-shake,shake));
     for(const p of pickups){
-      const st={xp:["#a9fbff","#5defff",6],repair:["#7dff9a","#55ff91",4],rapid:["#ffd45f","#ffb02e",3],shield:["#8fb1ff","#5f7dff",5],slow:["#d09bff","#a05cff",8]}[p.type];
-      ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.spin);ctx.shadowBlur=14;ctx.shadowColor=st[1];ctx.fillStyle=st[0];polygon(st[2],p.r);ctx.fill();ctx.restore()
+      const st={xp:["#a9fbff","#5defff",6],repair:["#7dff9a","#55ff91",4],rapid:["#ffd45f","#ffb02e",3],shield:["#8fb1ff","#5f7dff",5],slow:["#d09bff","#a05cff",8],core:["#ffe9a8","#ffd45f",6]}[p.type];
+      ctx.save();ctx.translate(p.x,p.y);ctx.rotate(p.spin);ctx.shadowBlur=14;ctx.shadowColor=st[1];ctx.fillStyle=st[0];polygon(st[2],p.r);ctx.fill();ctx.restore();
+      if(p.type==="core"){
+        ctx.save();ctx.globalAlpha=.45+.35*Math.sin(p.spin*1.5);ctx.strokeStyle="#ffd45f";ctx.shadowBlur=12;ctx.shadowColor="#ffd45f";ctx.lineWidth=2;
+        ctx.beginPath();ctx.arc(p.x,p.y,p.r+7,0,7);ctx.stroke();ctx.restore();ctx.globalAlpha=1;
+      }
     }
     for(const b of bullets){ctx.save();ctx.translate(b.x,b.y);ctx.shadowBlur=12;ctx.shadowColor=b.color;ctx.fillStyle=b.color;if(b.enemy){ctx.beginPath();ctx.arc(0,0,b.r,0,7);ctx.fill()}else{ctx.fillRect(-b.r,-b.r*3,b.r*2,b.r*6)}ctx.restore()}
     enemies.forEach(drawEnemy);
     for(const p of particles){ctx.globalAlpha=clamp(p.life/p.max,0,1);ctx.fillStyle=p.color;ctx.beginPath();ctx.arc(p.x,p.y,p.size*(.4+.6*p.life/p.max),0,7);ctx.fill()}ctx.globalAlpha=1;
     if(state!=="menu")drawPlayer();
+    if(state!=="menu"&&bossLevels.drone){
+      const dx=player.x+Math.cos(bossSys.droneA)*46,dy=player.y+Math.sin(bossSys.droneA)*46;
+      ctx.save();ctx.translate(dx,dy);ctx.rotate(bossSys.droneA*2);ctx.shadowBlur=12;ctx.shadowColor="#7dffd4";ctx.fillStyle="#7dffd4";polygon(3,7);ctx.fill();ctx.restore();
+    }
     for(const t of texts){ctx.globalAlpha=t.life;ctx.fillStyle=t.color;ctx.font="900 14px system-ui";ctx.textAlign="center";ctx.fillText(t.s,t.x,t.y)}ctx.globalAlpha=1;
     ctx.restore();
     if(flash>0){ctx.fillStyle=`rgba(255,${flash>.5?70:255},${flash>.5?120:255},${flash*.22})`;ctx.fillRect(0,0,W,H)}
